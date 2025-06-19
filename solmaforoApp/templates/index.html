@@ -1,0 +1,186 @@
+<!DOCTYPE html>
+<html lang="es">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>UV Sensor Dashboard</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.5.0/socket.io.js"></script>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Montserrat:wght@700;900&display=swap"
+      rel="stylesheet"
+    />
+    <style>
+      body {
+        font-family: "Montserrat", sans-serif;
+      }
+    </style>
+  </head>
+  <body
+    class="min-h-screen flex items-center justify-center transition-colors duration-500 bg-gradient-to-br from-blue-100 to-yellow-100"
+    id="body"
+  >
+    <!-- Navbar -->
+    <nav
+      class="fixed top-0 left-0 w-full bg-white/90 shadow-md z-50 flex items-center justify-between px-8 py-3 border-b border-gray-200"
+    >
+      <span class="text-xl font-bold tracking-tight text-yellow-600"
+        >Solmáforo</span
+      >
+      <div>
+        <a
+          href="/graphs"
+          class="text-gray-700 hover:text-yellow-600 font-semibold transition-colors duration-200"
+          >Gráficos</a
+        >
+      </div>
+    </nav>
+    <div class="pt-20 w-full flex justify-center">
+      <!-- Sección de Monitoreo -->
+      <div
+        class="bg-white/80 p-10 rounded-3xl shadow-2xl text-center max-w-md w-full border border-gray-200 backdrop-blur-md mb-10"
+      >
+        <h2 class="text-2xl font-bold text-gray-800 mb-6">Monitoreo</h2>
+        <div class="flex flex-col items-center mb-6">
+          <span
+            class="inline-flex items-center justify-center w-20 h-20 rounded-full bg-yellow-300 shadow-lg mb-2"
+          >
+            <svg
+              xmlns="http://www.w3.org/2000/svg"
+              fill="none"
+              viewBox="0 0 48 48"
+              class="w-12 h-12 text-yellow-500"
+            >
+              <circle cx="24" cy="24" r="12" fill="currentColor" />
+              <g stroke="currentColor" stroke-width="2">
+                <line x1="24" y1="4" x2="24" y2="0" />
+                <line x1="24" y1="48" x2="24" y2="44" />
+                <line x1="44" y1="24" x2="48" y2="24" />
+                <line x1="0" y1="24" x2="4" y2="24" />
+                <line x1="38.18" y1="9.82" x2="41.01" y2="6.99" />
+                <line x1="6.99" y1="41.01" x2="9.82" y2="38.18" />
+                <line x1="38.18" y1="38.18" x2="41.01" y2="41.01" />
+                <line x1="6.99" y1="6.99" x2="9.82" y2="9.82" />
+              </g>
+            </svg>
+          </span>
+          <h1 class="text-4xl font-extrabold text-gray-800 mb-1 tracking-tight">
+            Índice UV
+          </h1>
+          <p class="text-lg text-gray-500">Monitoreo en tiempo real</p>
+        </div>
+        <div class="flex flex-col items-center mb-6">
+          <div class="relative flex items-center justify-center mb-2">
+            <span
+              class="text-6xl font-black text-yellow-500 drop-shadow-lg"
+              id="uv-index"
+              >0.00</span
+            >
+          </div>
+          <span class="text-md text-gray-600"
+            >Valor actual del índice ultravioleta</span
+          >
+        </div>
+        <div class="flex flex-col items-center">
+          <div class="flex items-center gap-2 mb-2">
+            <svg
+              xmlns="http://www.w3.org/2000/svg"
+              class="h-6 w-6 text-red-400"
+              fill="none"
+              viewBox="0 0 24 24"
+              stroke="currentColor"
+            >
+              <path
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                stroke-width="2"
+                d="M13 16h-1v-4h-1m1-4h.01M12 20a8 8 0 100-16 8 8 0 000 16z"
+              />
+            </svg>
+            <span class="text-xl font-semibold text-gray-700"
+              >Nivel de peligro:</span
+            >
+            <span class="text-xl font-bold" id="danger-level">N/A</span>
+          </div>
+          <div class="w-full h-3 rounded-full bg-gray-200 overflow-hidden">
+            <div
+              id="uv-bar"
+              class="h-3 bg-yellow-400 transition-all duration-500"
+              style="width: 0%"
+            ></div>
+          </div>
+        </div>
+      </div>
+      <div id="raw-debug" class="mt-4 text-xs text-gray-500"></div>
+    </div>
+
+    <script>
+      document.addEventListener("DOMContentLoaded", function () {
+        function getBarWidth(uv) {
+          let width = Math.min((uv / 15) * 100, 100);
+          return width + "%";
+        }
+        function getBarColor(uv) {
+          if (uv < 3) return "#22c55e";
+          if (uv < 6) return "#eab308";
+          if (uv < 8) return "#f59e42";
+          if (uv < 11) return "#ef4444";
+          return "#a21caf";
+        }
+        const socket = io();
+
+        // Mensaje de error si no llegan datos
+        let dataTimeout = null;
+        function showError(msg) {
+          let el = document.getElementById("error-msg");
+          if (!el) {
+            el = document.createElement("div");
+            el.id = "error-msg";
+            el.className = "text-center text-red-600 font-bold mt-4";
+            document.body.appendChild(el);
+          }
+          el.textContent = msg;
+          el.style.display = "block";
+        }
+        function hideError() {
+          const el = document.getElementById("error-msg");
+          if (el) el.style.display = "none";
+        }
+
+        socket.on("uv_update", function (data) {
+          hideError();
+          console.log("Recibido:", data);
+          document.getElementById("uv-index").textContent =
+            data.uv_index.toFixed(2);
+          document.getElementById("danger-level").textContent =
+            data.danger_level;
+          document.getElementById("body").style.backgroundColor = data.color;
+          // Barra de progreso UV
+          const bar = document.getElementById("uv-bar");
+          bar.style.width = getBarWidth(data.uv_index);
+          bar.style.backgroundColor = getBarColor(data.uv_index);
+          // Mostrar línea cruda si existe
+          if (data.raw) {
+            document.getElementById("raw-debug").textContent =
+              "Línea recibida (sin parsear): " + data.raw;
+          } else {
+            document.getElementById("raw-debug").textContent = "";
+          }
+          if (dataTimeout) clearTimeout(dataTimeout);
+          dataTimeout = setTimeout(() => {
+            showError("No se están recibiendo datos en tiempo real.");
+          }, 5000);
+        });
+
+        // Si no llegan datos en 5 segundos, mostrar error
+        setTimeout(() => {
+          if (document.getElementById("uv-index").textContent === "0.00") {
+            showError("No se están recibiendo datos en tiempo real.");
+          }
+        }, 5000);
+      });
+    </script>
+  </body>
+</html>
